@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useDiagnosisStore } from "@/store/diagnosis";
 import { calcDiagnosisResult, formatSalary } from "@/lib/diagnosis-logic";
@@ -10,56 +10,86 @@ import { SalaryProgressionChart } from "@/components/result/SalaryProgressionCha
 import { ScoreBadge } from "@/components/result/ScoreBadge";
 import { AdviceList } from "@/components/result/AdviceList";
 import { AgentCta } from "@/components/result/AgentCta";
+import { AiAdvice } from "@/components/result/AiAdvice";
 import { PROFESSIONS, EXPERIENCE_RANGES } from "@/lib/types";
 import type { DiagnosisResult } from "@/lib/types";
 import type { ProgressionPoint } from "@/lib/salary-data";
 
-function getProfessionLabel(profession: string | null) {
-  return PROFESSIONS.find((p) => p.value === profession)?.label ?? "";
+function getProfessionLabel(v: string | null) {
+  return PROFESSIONS.find((p) => p.value === v)?.label ?? "";
 }
-
-function getExperienceLabel(exp: string | null) {
-  return EXPERIENCE_RANGES.find((e) => e.value === exp)?.label ?? "";
+function getExperienceLabel(v: string | null) {
+  return EXPERIENCE_RANGES.find((e) => e.value === v)?.label ?? "";
 }
 
 export default function ResultPage() {
   const router = useRouter();
-  const { answers, reset } = useDiagnosisStore();
-  const [result, setResult]         = useState<DiagnosisResult | null>(null);
+  const { answers, reset }            = useDiagnosisStore();
+  const [result, setResult]           = useState<DiagnosisResult | null>(null);
   const [progression, setProgression] = useState<ProgressionPoint[]>([]);
-  const [copied, setCopied]         = useState(false);
+  const [copied, setCopied]           = useState(false);
+  const [saveState, setSaveState]     = useState<"idle" | "saving" | "saved" | "noauth" | "error">("idle");
+  const anonSent                      = useRef(false);
 
   useEffect(() => {
     const r = calcDiagnosisResult(answers);
-    if (!r) {
-      router.replace("/diagnosis");
-      return;
-    }
+    if (!r) { router.replace("/diagnosis"); return; }
     setResult(r);
 
-    if (
-      answers.profession &&
-      answers.region &&
-      answers.facilityType &&
-      answers.employmentType &&
-      answers.position
-    ) {
-      setProgression(
-        getSalaryProgressionData(
-          answers.profession,
-          answers.region,
-          answers.facilityType,
-          answers.employmentType,
-          answers.position
-        )
-      );
+    if (answers.profession && answers.region && answers.facilityType && answers.employmentType && answers.position) {
+      setProgression(getSalaryProgressionData(
+        answers.profession, answers.region, answers.facilityType, answers.employmentType, answers.position
+      ));
+    }
+
+    // 匿名データ送信（1回のみ）
+    if (!anonSent.current && answers.currentSalary && answers.profession && answers.region) {
+      anonSent.current = true;
+      fetch("/api/anonymous-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          profession:      answers.profession,
+          facilityType:    answers.facilityType,
+          region:          answers.region,
+          experience:      answers.experience,
+          employmentType:  answers.employmentType,
+          position:        answers.position,
+          salary:          answers.currentSalary,
+        }),
+      }).catch(() => {});
     }
   }, [answers, router]);
 
-  const handleRetry = () => {
-    reset();
-    router.push("/diagnosis");
+  const handleSave = async () => {
+    if (!result) return;
+    setSaveState("saving");
+    const res = await fetch("/api/results", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profession:      answers.profession,
+        facilityType:    answers.facilityType,
+        prefecture:      answers.prefecture,
+        experience:      answers.experience,
+        employmentType:  answers.employmentType,
+        position:        answers.position,
+        qualifications:  answers.qualifications,
+        currentSalary:   answers.currentSalary,
+        medianSalary:    result.salaryData.medianSalary,
+        nationalAvg:     result.salaryData.nationalAvg,
+        evaluation:      result.evaluation,
+        difference:      result.difference,
+      }),
+    });
+
+    if (res.status === 401)      { setSaveState("noauth"); return; }
+    if (res.status === 503)      { setSaveState("noauth"); return; }
+    if (!res.ok)                 { setSaveState("error");  return; }
+    setSaveState("saved");
   };
+
+  const handleRetry = () => { reset(); router.push("/diagnosis"); };
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(window.location.href);
@@ -87,43 +117,67 @@ export default function ResultPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* ヘッダー */}
       <header className="bg-white border-b border-slate-100 px-4 py-4">
-        <div className="max-w-xl mx-auto flex items-center gap-2">
-          <span className="text-xl">🩺</span>
-          <span className="text-base font-bold text-slate-800">MedSalary Check</span>
+        <div className="max-w-xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-xl">🩺</span>
+            <span className="text-base font-bold text-slate-800">MedSalary Check</span>
+          </div>
+          <a href="/auth/login" className="text-xs text-blue-600 hover:underline border border-blue-200 rounded-lg px-3 py-1.5">
+            ログイン / 登録
+          </a>
         </div>
       </header>
 
       <main className="px-4 py-8 max-w-xl mx-auto space-y-6">
-        {/* タイトル */}
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">あなたの年収診断結果</h1>
-          <p className="text-sm text-slate-500 mt-1">
-            {professionLabel} ／ 経験{experienceLabel} ／ {answers.prefecture}
-          </p>
+        {/* タイトル + 保存ボタン */}
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">あなたの年収診断結果</h1>
+            <p className="text-sm text-slate-500 mt-1">
+              {professionLabel} ／ 経験{experienceLabel} ／ {answers.prefecture}
+            </p>
+          </div>
+          <div className="flex-shrink-0">
+            {saveState === "idle" && (
+              <button
+                onClick={handleSave}
+                className="text-xs bg-white border border-slate-200 text-slate-600 font-medium px-3 py-2 rounded-xl hover:border-blue-300 hover:text-blue-600 transition-colors"
+              >
+                💾 保存
+              </button>
+            )}
+            {saveState === "saving" && (
+              <span className="text-xs text-slate-400">保存中...</span>
+            )}
+            {saveState === "saved" && (
+              <a href="/mypage" className="text-xs text-emerald-600 font-medium">✓ 保存済み →</a>
+            )}
+            {saveState === "noauth" && (
+              <a href="/auth/login" className="text-xs text-blue-600 hover:underline">
+                ログインして保存
+              </a>
+            )}
+            {saveState === "error" && (
+              <span className="text-xs text-red-500">保存失敗</span>
+            )}
+          </div>
         </div>
 
-        {/* 相場より低い場合：緊急CTAを上部に表示 */}
-        {isBelow && (
-          <AgentCta urgent professionLabel={professionLabel} />
-        )}
+        {/* 相場より低い場合：緊急CTA */}
+        {isBelow && <AgentCta urgent professionLabel={professionLabel} />}
 
         {/* 年収比較カード */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
           {answers.currentSalary != null && (
             <div className="flex justify-between items-center">
               <span className="text-sm text-slate-500">現在の年収</span>
-              <span className="text-xl font-bold text-slate-800">
-                {formatSalary(answers.currentSalary)}
-              </span>
+              <span className="text-xl font-bold text-slate-800">{formatSalary(answers.currentSalary)}</span>
             </div>
           )}
           <div className="flex justify-between items-center">
             <span className="text-sm text-slate-500">同条件の相場（中央値）</span>
-            <span className="text-xl font-bold text-blue-700">
-              {formatSalary(salaryData.medianSalary)}
-            </span>
+            <span className="text-xl font-bold text-blue-700">{formatSalary(salaryData.medianSalary)}</span>
           </div>
           <div className="flex justify-between items-center text-xs text-slate-400 border-t pt-3">
             <span>全国平均</span>
@@ -150,10 +204,7 @@ export default function ResultPage() {
         {/* 年収比較グラフ */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
           <p className="text-xs font-semibold text-slate-500 mb-4">年収比較グラフ</p>
-          <SalaryComparisonChart
-            currentSalary={answers.currentSalary}
-            salaryData={salaryData}
-          />
+          <SalaryComparisonChart currentSalary={answers.currentSalary} salaryData={salaryData} />
           <div className="flex gap-4 mt-3 flex-wrap">
             <span className="flex items-center gap-1.5 text-xs text-slate-500">
               <span className="w-3 h-3 rounded-sm bg-slate-400 inline-block" />全国平均
@@ -169,29 +220,39 @@ export default function ResultPage() {
           </div>
         </div>
 
-        {/* 年収推移グラフ（NEW: v1.5） */}
+        {/* 年収推移グラフ */}
         {progression.length > 0 && (
           <div className="bg-white rounded-2xl border border-slate-200 p-5">
             <p className="text-xs font-semibold text-slate-500 mb-1">
               {professionLabel}の年収推移（経験年数別）
             </p>
-            <p className="text-xs text-slate-400 mb-4">あなたの同条件で経験年数が上がると？</p>
-            <SalaryProgressionChart
-              data={progression}
-              currentExperienceLabel={experienceLabel}
-            />
+            <p className="text-xs text-slate-400 mb-4">同条件のままキャリアを積むと？</p>
+            <SalaryProgressionChart data={progression} currentExperienceLabel={experienceLabel} />
           </div>
         )}
 
-        {/* アドバイス */}
+        {/* Claude AI 個別アドバイス（NEW: v2.0） */}
+        <AiAdvice
+          answers={answers}
+          medianSalary={salaryData.medianSalary}
+          evaluation={evaluation}
+          difference={difference}
+        />
+
+        {/* 静的アドバイス */}
         <div>
           <h2 className="text-base font-bold text-slate-800 mb-3">年収アップのためのアドバイス</h2>
           <AdviceList advices={advices} />
         </div>
 
-        {/* 相場より低くない場合のCTA */}
-        {!isBelow && (
-          <AgentCta professionLabel={professionLabel} />
+        {/* 転職エージェントCTA（相場以上の場合） */}
+        {!isBelow && <AgentCta professionLabel={professionLabel} />}
+
+        {/* 匿名データ活用のご案内 */}
+        {answers.currentSalary != null && (
+          <p className="text-[10px] text-slate-400 text-center px-2">
+            ※ あなたの年収データは個人を特定できない形で匿名集計され、相場データの精度向上に活用されます
+          </p>
         )}
 
         {/* シェア */}
@@ -200,8 +261,7 @@ export default function ResultPage() {
           <div className="flex gap-2.5 flex-wrap">
             <a
               href={`https://twitter.com/intent/tweet?text=${twitterText}`}
-              target="_blank"
-              rel="noopener noreferrer"
+              target="_blank" rel="noopener noreferrer"
               className="flex-1 min-w-[120px] bg-black text-white text-xs font-bold py-3 rounded-xl text-center hover:bg-gray-800 transition-colors"
             >
               X でシェア
@@ -210,8 +270,7 @@ export default function ResultPage() {
               href={`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(
                 typeof window !== "undefined" ? window.location.href : ""
               )}`}
-              target="_blank"
-              rel="noopener noreferrer"
+              target="_blank" rel="noopener noreferrer"
               className="flex-1 min-w-[120px] bg-[#06C755] text-white text-xs font-bold py-3 rounded-xl text-center hover:opacity-90 transition-opacity"
             >
               LINE でシェア
