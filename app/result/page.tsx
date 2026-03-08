@@ -4,32 +4,30 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useDiagnosisStore } from "@/store/diagnosis";
 import { calcDiagnosisResult, formatSalary } from "@/lib/diagnosis-logic";
+import { getSalaryProgressionData } from "@/lib/salary-data";
 import { SalaryComparisonChart } from "@/components/result/SalaryComparisonChart";
+import { SalaryProgressionChart } from "@/components/result/SalaryProgressionChart";
 import { ScoreBadge } from "@/components/result/ScoreBadge";
 import { AdviceList } from "@/components/result/AdviceList";
-import { PROFESSIONS } from "@/lib/types";
+import { AgentCta } from "@/components/result/AgentCta";
+import { PROFESSIONS, EXPERIENCE_RANGES } from "@/lib/types";
 import type { DiagnosisResult } from "@/lib/types";
+import type { ProgressionPoint } from "@/lib/salary-data";
 
 function getProfessionLabel(profession: string | null) {
   return PROFESSIONS.find((p) => p.value === profession)?.label ?? "";
 }
 
 function getExperienceLabel(exp: string | null) {
-  const map: Record<string, string> = {
-    lt1: "1年未満",
-    "1to3": "1〜3年",
-    "4to7": "4〜7年",
-    "8to14": "8〜14年",
-    gte15: "15年以上",
-  };
-  return exp ? map[exp] : "";
+  return EXPERIENCE_RANGES.find((e) => e.value === exp)?.label ?? "";
 }
 
 export default function ResultPage() {
   const router = useRouter();
   const { answers, reset } = useDiagnosisStore();
-  const [result, setResult] = useState<DiagnosisResult | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [result, setResult]         = useState<DiagnosisResult | null>(null);
+  const [progression, setProgression] = useState<ProgressionPoint[]>([]);
+  const [copied, setCopied]         = useState(false);
 
   useEffect(() => {
     const r = calcDiagnosisResult(answers);
@@ -38,6 +36,24 @@ export default function ResultPage() {
       return;
     }
     setResult(r);
+
+    if (
+      answers.profession &&
+      answers.region &&
+      answers.facilityType &&
+      answers.employmentType &&
+      answers.position
+    ) {
+      setProgression(
+        getSalaryProgressionData(
+          answers.profession,
+          answers.region,
+          answers.facilityType,
+          answers.employmentType,
+          answers.position
+        )
+      );
+    }
   }, [answers, router]);
 
   const handleRetry = () => {
@@ -51,8 +67,11 @@ export default function ResultPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const professionLabel = getProfessionLabel(answers.profession);
+  const experienceLabel = getExperienceLabel(answers.experience);
+
   const twitterText = encodeURIComponent(
-    `医療従事者向け年収診断「MedSalary Check」で年収診断してみました！ #MedSalaryCheck #看護師 #年収`
+    `医療従事者向け年収診断「MedSalary Check」で${professionLabel}の年収診断してみました！ #MedSalaryCheck #年収診断`
   );
 
   if (!result) {
@@ -64,6 +83,7 @@ export default function ResultPage() {
   }
 
   const { salaryData, evaluation, difference, advices } = result;
+  const isBelow = evaluation === "below";
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -80,10 +100,14 @@ export default function ResultPage() {
         <div>
           <h1 className="text-2xl font-bold text-slate-800">あなたの年収診断結果</h1>
           <p className="text-sm text-slate-500 mt-1">
-            {getProfessionLabel(answers.profession)} ／ 経験{getExperienceLabel(answers.experience)} ／{" "}
-            {answers.prefecture}
+            {professionLabel} ／ 経験{experienceLabel} ／ {answers.prefecture}
           </p>
         </div>
+
+        {/* 相場より低い場合：緊急CTAを上部に表示 */}
+        {isBelow && (
+          <AgentCta urgent professionLabel={professionLabel} />
+        )}
 
         {/* 年収比較カード */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-4">
@@ -123,7 +147,7 @@ export default function ResultPage() {
           </p>
         </div>
 
-        {/* グラフ */}
+        {/* 年収比較グラフ */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
           <p className="text-xs font-semibold text-slate-500 mb-4">年収比較グラフ</p>
           <SalaryComparisonChart
@@ -145,11 +169,30 @@ export default function ResultPage() {
           </div>
         </div>
 
+        {/* 年収推移グラフ（NEW: v1.5） */}
+        {progression.length > 0 && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-5">
+            <p className="text-xs font-semibold text-slate-500 mb-1">
+              {professionLabel}の年収推移（経験年数別）
+            </p>
+            <p className="text-xs text-slate-400 mb-4">あなたの同条件で経験年数が上がると？</p>
+            <SalaryProgressionChart
+              data={progression}
+              currentExperienceLabel={experienceLabel}
+            />
+          </div>
+        )}
+
         {/* アドバイス */}
         <div>
           <h2 className="text-base font-bold text-slate-800 mb-3">年収アップのためのアドバイス</h2>
           <AdviceList advices={advices} />
         </div>
+
+        {/* 相場より低くない場合のCTA */}
+        {!isBelow && (
+          <AgentCta professionLabel={professionLabel} />
+        )}
 
         {/* シェア */}
         <div className="bg-white rounded-2xl border border-slate-200 p-5">
@@ -184,10 +227,7 @@ export default function ResultPage() {
 
         {/* 再診断 */}
         <div className="text-center pb-6">
-          <button
-            onClick={handleRetry}
-            className="text-sm text-blue-600 hover:underline"
-          >
+          <button onClick={handleRetry} className="text-sm text-blue-600 hover:underline">
             ← 最初からやり直す
           </button>
         </div>

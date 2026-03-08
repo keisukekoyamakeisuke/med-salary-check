@@ -53,7 +53,7 @@ export default function DiagnosisPage() {
     if (currentStep === 4) return answers.experience !== null;
     if (currentStep === 5) return answers.employmentType !== null;
     if (currentStep === 6) return answers.position !== null;
-    if (currentStep === 7) return true; // 任意
+    if (currentStep === 7) return true;
     if (currentStep === 8) return answers.currentSalary !== null || answers.salaryUnknown;
     return false;
   })();
@@ -85,16 +85,26 @@ export default function DiagnosisPage() {
             {STEP_TITLES[currentStep - 1]}
           </h2>
 
-          {/* Step 1: 職種 */}
+          {/* Step 1: 職種（アイコン付き2列グリッド） */}
           {currentStep === 1 && (
-            <div className="space-y-2.5">
+            <div className="grid grid-cols-2 gap-2.5">
               {PROFESSIONS.map((p) => (
-                <OptionButton
+                <button
                   key={p.value}
-                  label={p.label}
-                  selected={answers.profession === p.value}
+                  type="button"
                   onClick={() => setProfession(p.value)}
-                />
+                  className={`
+                    flex flex-col items-center gap-2 px-3 py-4 rounded-xl border-2 text-sm font-medium transition-all
+                    ${
+                      answers.profession === p.value
+                        ? "border-blue-600 bg-blue-50 text-blue-700"
+                        : "border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50/50"
+                    }
+                  `}
+                >
+                  <span className="text-2xl">{p.icon}</span>
+                  <span className="text-xs text-center leading-tight">{p.label}</span>
+                </button>
               ))}
             </div>
           )}
@@ -123,19 +133,13 @@ export default function DiagnosisPage() {
               >
                 <option value="">都道府県を選択</option>
                 {PREFECTURES.map((pref) => (
-                  <option key={pref} value={pref}>
-                    {pref}
-                  </option>
+                  <option key={pref} value={pref}>{pref}</option>
                 ))}
               </select>
               {answers.prefecture && (
                 <p className="text-xs text-slate-500 mt-2 px-1">
                   地域区分:{" "}
-                  {answers.region === "urban"
-                    ? "都市部"
-                    : answers.region === "suburban"
-                    ? "地方都市"
-                    : "地方"}
+                  {answers.region === "urban" ? "都市部" : answers.region === "suburban" ? "地方都市" : "地方"}
                 </p>
               )}
             </div>
@@ -227,10 +231,9 @@ export default function DiagnosisPage() {
             disabled={!canNext}
             className={`
               flex-[2] py-3.5 rounded-xl font-bold text-sm transition-all
-              ${
-                canNext
-                  ? "bg-blue-600 text-white hover:bg-blue-700 shadow-md"
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed"
+              ${canNext
+                ? "bg-blue-600 text-white hover:bg-blue-700 shadow-md"
+                : "bg-slate-200 text-slate-400 cursor-not-allowed"
               }
             `}
           >

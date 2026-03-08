@@ -1,9 +1,18 @@
 import Link from "next/link";
 
 const PROFESSIONS = [
-  { icon: "🏥", label: "看護師" },
+  { icon: "🩺", label: "医師" },
+  { icon: "🦷", label: "歯科医師" },
+  { icon: "💉", label: "看護師" },
+  { icon: "🏥", label: "准看護師" },
   { icon: "💊", label: "薬剤師" },
   { icon: "🦴", label: "理学療法士" },
+  { icon: "🖐️", label: "作業療法士" },
+  { icon: "🗣️", label: "言語聴覚士" },
+  { icon: "🔬", label: "放射線技師" },
+  { icon: "🧪", label: "臨床検査技師" },
+  { icon: "🥗", label: "管理栄養士" },
+  { icon: "📋", label: "医療事務" },
 ];
 
 const STEPS = [
@@ -23,7 +32,7 @@ const FAQS = [
   },
   {
     q: "対象の職種はどれですか？",
-    a: "現在は看護師・薬剤師・理学療法士の3職種に対応しています。順次拡大予定です。",
+    a: "医師・歯科医師・看護師・准看護師・薬剤師・理学療法士・作業療法士・言語聴覚士・放射線技師・臨床検査技師・管理栄養士・医療事務の12職種に対応しています。",
   },
   {
     q: "無料ですか？",
@@ -67,13 +76,13 @@ export default function Home() {
       <section className="py-8 px-4 bg-slate-50">
         <div className="max-w-xl mx-auto">
           <p className="text-center text-xs text-slate-500 mb-4">対応職種</p>
-          <div className="flex justify-center gap-3 flex-wrap">
+          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
             {PROFESSIONS.map((p) => (
               <div
                 key={p.label}
-                className="flex items-center gap-2 bg-white border border-slate-200 rounded-full px-4 py-2 text-sm font-medium text-slate-700 shadow-sm"
+                className="flex flex-col items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-3 text-xs font-medium text-slate-700 shadow-sm"
               >
-                <span>{p.icon}</span>
+                <span className="text-xl">{p.icon}</span>
                 <span>{p.label}</span>
               </div>
             ))}
